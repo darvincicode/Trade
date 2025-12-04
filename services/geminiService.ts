@@ -3,15 +3,67 @@ import { Candle, MarketNews, AIAnalysisResult, BotConfig } from '../types';
 
 let genAI: GoogleGenAI | null = null;
 
-const getAIClient = () => {
-  if (!genAI) {
-    if (!process.env.API_KEY) {
-      console.error("API Key is missing!");
-      return null;
+// Safe access to environment variable
+const getApiKey = () => {
+  try {
+    // Check if process is defined (node/bundled env) to avoid ReferenceError
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      return process.env.API_KEY;
     }
-    genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  } catch (e) {
+    console.warn("Environment access error:", e);
   }
+  return null;
+};
+
+const getAIClient = () => {
+  if (genAI) return genAI;
+  
+  const key = getApiKey();
+  if (!key) return null; // Graceful failure if key is missing
+
+  genAI = new GoogleGenAI({ apiKey: key });
   return genAI;
+};
+
+// Fallback algorithm when AI is unavailable
+const fallbackAnalysis = (candles: Candle[]): AIAnalysisResult => {
+  // Need at least 2 candles to compare
+  if (candles.length < 2) {
+      return { action: 'HOLD', confidence: 0, reasoning: "Insufficient data", riskLevel: 'LOW' };
+  }
+
+  const last = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  
+  // Simple Momentum Strategy Fallback
+  // If price is closing higher than previous high = Bullish
+  const isBullish = last.close > prev.high;
+  // If price is closing lower than previous low = Bearish
+  const isBearish = last.close < prev.low;
+  
+  if (isBullish) {
+    return {
+      action: 'BUY',
+      confidence: 65,
+      reasoning: "Simulated Strategy (Gemini Key Missing): Bullish momentum detected.",
+      riskLevel: 'MEDIUM'
+    };
+  } else if (isBearish) {
+    return {
+      action: 'SELL',
+      confidence: 65,
+      reasoning: "Simulated Strategy (Gemini Key Missing): Bearish breakdown detected.",
+      riskLevel: 'MEDIUM'
+    };
+  }
+  
+  return {
+    action: 'HOLD',
+    confidence: 50,
+    reasoning: "Simulated Strategy (Gemini Key Missing): Consolidation phase.",
+    riskLevel: 'LOW'
+  };
 };
 
 export const analyzeMarket = async (
@@ -20,13 +72,13 @@ export const analyzeMarket = async (
   config: BotConfig
 ): Promise<AIAnalysisResult> => {
   const client = getAIClient();
+  
+  // 1. Fallback if client cannot be created (Missing Key)
   if (!client) {
-    return {
-      action: 'HOLD',
-      confidence: 0,
-      reasoning: "API Key configuration error.",
-      riskLevel: 'LOW'
-    };
+    console.warn("Gemini API Key missing - Using Fallback Simulation");
+    // Delay slightly to simulate "thinking"
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return fallbackAnalysis(candles);
   }
 
   // Format data for the prompt
@@ -72,11 +124,10 @@ export const analyzeMarket = async (
 
   } catch (error) {
     console.error("Gemini Analysis Failed:", error);
+    // Fallback in case of API error (e.g. quota exceeded or network issue)
     return {
-      action: 'HOLD',
-      confidence: 0,
-      reasoning: "AI analysis failed due to technical error.",
-      riskLevel: 'HIGH'
+      ...fallbackAnalysis(candles),
+      reasoning: "Analysis failed (API Error) - Using fallback technicals."
     };
   }
 };
