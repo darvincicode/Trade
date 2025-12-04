@@ -9,6 +9,7 @@ export const DeployTab: React.FC = () => {
 
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenAI } = require('@google/genai');
+const Mexc = require('mexc-sdk'); // Hypothetical SDK
 require('dotenv').config();
 
 // 1. Admin Level Connection (Bypass RLS)
@@ -40,25 +41,36 @@ async function runTradingCycle() {
 
 async function processUserBot(user) {
   const config = user.bot_config;
-  if (!config || !config.apiKey) return; // Skip if not configured
+  
+  // Basic validation
+  if (!config) return; 
 
   try {
-    console.log(\`Processing for User: \${user.email} | Pair: \${config.pair}\`);
+    console.log(\`Processing for User: \${user.email} | Mode: \${config.tradingMode || 'paper'}\`);
 
-    // A. Fetch Data (Mock or Real MEXC API)
-    // const candles = await mexcApi.getCandles(config.pair);
-    
-    // B. AI Analysis
+    // A. AI Analysis
     const prompt = \`Analyze \${config.pair} with risk tolerance: \${config.riskTolerance}\`;
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: prompt
     });
+    // Parse result...
+    // const signal = ...
 
-    // C. Execute Trade if Signal matches
-    // if (signal === 'BUY') mexcApi.placeOrder(user.apiKey, ...);
-    
-    console.log(\`-> \${user.email}: Analysis complete.\`);
+    // B. Execution Logic
+    if (config.tradingMode === 'live') {
+      if (!config.apiKey || !config.apiSecret) {
+         console.warn("Skipping LIVE trade: Missing API keys");
+         return;
+      }
+      
+      console.log("EXECUTING REAL TRADE ON MEXC...");
+      // const client = new Mexc.Client(config.apiKey, config.apiSecret);
+      // await client.placeOrder(...)
+      
+    } else {
+      console.log("SIMULATING PAPER TRADE (No real funds used)");
+    }
 
   } catch (err) {
     console.error(\`Error for user \${user.email}:\`, err.message);

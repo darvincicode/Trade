@@ -1,6 +1,7 @@
 import React from 'react';
 import { BotStatus, BotConfig } from '../types';
-import { IconPlay, IconPause, IconDatabase } from './Icons';
+import { IconPlay, IconPause, IconDatabase, IconActivity, IconZap } from './Icons';
+import { SUPPORTED_PAIRS } from '../services/mockMarket';
 
 interface BotControlProps {
   status: BotStatus;
@@ -11,14 +12,45 @@ interface BotControlProps {
 
 export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle, onConfigChange }) => {
   const isRunning = status === BotStatus.RUNNING;
+  const isLive = config.tradingMode === 'live';
 
   return (
-    <div className="bg-crypto-panel p-6 rounded-lg border border-gray-800 shadow-xl relative">
+    <div className={`p-6 rounded-lg border shadow-xl relative transition-colors duration-300 ${isLive ? 'bg-[#1a0505] border-red-900/50' : 'bg-crypto-panel border-gray-800'}`}>
+      
+      {/* TRADING MODE SELECTOR */}
+      <div className="flex bg-[#0b0e11] p-1 rounded-lg border border-gray-700 mb-6">
+        <button
+          onClick={() => !isRunning && onConfigChange({ ...config, tradingMode: 'paper' })}
+          disabled={isRunning}
+          className={`flex-1 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            !isLive 
+              ? 'bg-gray-700 text-white shadow' 
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <IconActivity className="w-4 h-4" />
+          PAPER TRADING (DEMO)
+        </button>
+        <button
+          onClick={() => !isRunning && onConfigChange({ ...config, tradingMode: 'live' })}
+          disabled={isRunning}
+          className={`flex-1 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            isLive 
+              ? 'bg-crypto-red text-white shadow shadow-red-900/50' 
+              : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <IconZap className="w-4 h-4" />
+          LIVE TRADING (MEXC)
+        </button>
+      </div>
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           Bot Status: 
-          <span className={`${isRunning ? 'text-crypto-green' : 'text-gray-500'} font-mono`}>
+          <span className={`${isRunning ? (isLive ? 'text-crypto-red animate-pulse' : 'text-crypto-green') : 'text-gray-500'} font-mono`}>
              {status}
+             {isRunning && isLive && " (REAL MONEY)"}
           </span>
         </h2>
         
@@ -26,18 +58,26 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
           onClick={onToggle}
           className={`flex items-center gap-2 px-6 py-2 rounded font-bold transition-all ${
             isRunning 
-              ? 'bg-crypto-red/10 text-crypto-red hover:bg-crypto-red/20' 
-              : 'bg-crypto-green text-black hover:bg-green-400'
+              ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' 
+              : isLive
+                ? 'bg-crypto-red text-white hover:bg-red-600 shadow-lg shadow-red-900/20'
+                : 'bg-crypto-green text-black hover:bg-green-400'
           }`}
         >
-          {isRunning ? <><IconPause className="w-4 h-4" /> STOP BOT</> : <><IconPlay className="w-4 h-4" /> START BOT</>}
+          {isRunning ? <><IconPause className="w-4 h-4" /> STOP BOT</> : <><IconPlay className="w-4 h-4" /> {isLive ? 'START LIVE BOT' : 'START DEMO BOT'}</>}
         </button>
       </div>
 
       <div className="space-y-4">
         {/* API Credentials Section */}
-        <div className="p-4 bg-[#0b0e11] border border-gray-800 rounded-lg mb-4">
-          <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3 font-semibold">MEXC API Configuration</h3>
+        <div className={`p-4 border rounded-lg mb-4 transition-colors ${isLive ? 'bg-red-900/10 border-red-900/30' : 'bg-[#0b0e11] border-gray-800'}`}>
+          <div className="flex justify-between items-center mb-3">
+             <h3 className={`text-xs uppercase tracking-wider font-semibold ${isLive ? 'text-red-400' : 'text-gray-500'}`}>
+               MEXC API Configuration {isLive && '(REQUIRED)'}
+             </h3>
+             {isLive && <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded">REAL TRADING ACTIVE</span>}
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
              <div>
                <label className="block text-gray-400 text-xs mb-1">API Key</label>
@@ -46,7 +86,7 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
                  value={config.apiKey}
                  disabled={isRunning}
                  onChange={(e) => onConfigChange({...config, apiKey: e.target.value})}
-                 className="w-full bg-crypto-panel border border-gray-700 rounded p-2 text-white focus:border-crypto-accent outline-none placeholder-gray-600 font-mono text-sm"
+                 className="w-full bg-[#0b0e11] border border-gray-700 rounded p-2 text-white focus:border-crypto-accent outline-none placeholder-gray-600 font-mono text-sm"
                  placeholder="mx0..."
                />
              </div>
@@ -57,7 +97,7 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
                  value={config.apiSecret}
                  disabled={isRunning}
                  onChange={(e) => onConfigChange({...config, apiSecret: e.target.value})}
-                 className="w-full bg-crypto-panel border border-gray-700 rounded p-2 text-white focus:border-crypto-accent outline-none placeholder-gray-600 font-mono text-sm"
+                 className="w-full bg-[#0b0e11] border border-gray-700 rounded p-2 text-white focus:border-crypto-accent outline-none placeholder-gray-600 font-mono text-sm"
                  placeholder="••••••••••••••••"
                />
              </div>
@@ -66,14 +106,21 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
            <div>
-             <label className="block text-gray-400 text-xs mb-1">Trading Pair (MEXC)</label>
+             <label className="block text-gray-400 text-xs mb-1">Trading Pair (MEXC Top 100)</label>
              <input 
+               list="supported-pairs"
                type="text" 
                value={config.pair}
                disabled={isRunning}
                onChange={(e) => onConfigChange({...config, pair: e.target.value})}
                className="w-full bg-[#0b0e11] border border-gray-700 rounded p-2 text-white focus:border-crypto-accent outline-none"
+               placeholder="Select or type..."
              />
+             <datalist id="supported-pairs">
+               {SUPPORTED_PAIRS.map(pair => (
+                 <option key={pair} value={pair} />
+               ))}
+             </datalist>
            </div>
            <div>
              <label className="block text-gray-400 text-xs mb-1">Amount per Trade (USDT)</label>

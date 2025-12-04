@@ -1,3 +1,4 @@
+
 export enum BotStatus {
   IDLE = 'IDLE',
   RUNNING = 'RUNNING',
@@ -26,6 +27,7 @@ export interface Trade {
   slPrice?: number;
   tpPrice?: number;
   closeReason?: 'TP' | 'SL' | 'SIGNAL' | 'MANUAL';
+  executionMode: 'PAPER' | 'LIVE'; // NEW field
 }
 
 export interface MarketNews {
@@ -52,6 +54,7 @@ export interface BotConfig {
   aiInterval: number; // in seconds
   stopLoss: number; // percentage
   takeProfit: number; // percentage
+  tradingMode: 'paper' | 'live'; // NEW field
 }
 
 export type UserRole = 'admin' | 'user';

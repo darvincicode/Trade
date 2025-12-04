@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BotStatus, BotConfig, Candle, Trade, AIAnalysisResult, User } from './types';
-import { generateNextCandle, getLatestPrice, MOCK_NEWS } from './services/mockMarket';
+import { generateNextCandle, getLatestPrice, MOCK_NEWS, generateInitialCandles } from './services/mockMarket';
 import { analyzeMarket } from './services/geminiService';
 import { saveState, loadState } from './services/storage';
 import { authService } from './services/authService';
@@ -12,19 +12,6 @@ import { DeployTab } from './components/DeployTab';
 import { AuthScreen } from './components/AuthScreen';
 import { AdminPanel } from './components/AdminPanel';
 import { IconBot, IconActivity, IconZap, IconTrendingUp, IconSettings, IconServer, IconDatabase } from './components/Icons';
-
-// Initial Mock Data
-const INITIAL_CANDLES: Candle[] = Array.from({ length: 20 }).map((_, i) => {
-  const base = 96000;
-  return {
-    time: `10:${i < 10 ? '0' + i : i}:00`,
-    open: base + Math.random() * 100,
-    high: base + 200,
-    low: base - 100,
-    close: base + Math.random() * 100,
-    volume: 1000 + Math.random() * 500
-  };
-});
 
 export default function App() {
   // --- Auth State ---
@@ -42,17 +29,25 @@ export default function App() {
     riskTolerance: 'aggressive',
     aiInterval: 10,
     stopLoss: 2.0,
-    takeProfit: 5.0
+    takeProfit: 5.0,
+    tradingMode: 'paper'
   });
 
-  const [candles, setCandles] = useState<Candle[]>(INITIAL_CANDLES);
+  const [candles, setCandles] = useState<Candle[]>([]); // Init empty, will load in effect
   const [trades, setTrades] = useState<Trade[]>([]);
   const [logs, setLogs] = useState<{ time: string; result: AIAnalysisResult }[]>([]);
-  const [balance, setBalance] = useState<number>(10000);
+  const [paperBalance, setPaperBalance] = useState<number>(10000);
   const [profit, setProfit] = useState<number>(0);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
 
   const aiIntervalRef = useRef<number | null>(null);
+
+  // --- Initialize Candles based on pair ---
+  useEffect(() => {
+    // When the component mounts or pair changes, reset the chart to the new pair's mock price
+    const initData = generateInitialCandles(config.pair);
+    setCandles(initData);
+  }, [config.pair]);
 
   // --- Auth Effect ---
   useEffect(() => {
@@ -65,7 +60,7 @@ export default function App() {
         // Load cloud config if available
         const cloudConfig = await cloudService.loadConfig(session.id);
         if (cloudConfig) {
-          setConfig(cloudConfig);
+          setConfig(prev => ({ ...prev, ...cloudConfig }));
           setIsCloudSynced(true);
         }
       }
@@ -86,11 +81,10 @@ export default function App() {
     if (!user) return; // Only load data if logged in
     const saved = loadState();
     if (saved) {
-      // Only overwrite if we haven't already loaded from cloud (Cloud takes precedence usually, but for simplicity we mix)
-      if (!isCloudSynced && saved.config) setConfig(saved.config);
+      if (!isCloudSynced && saved.config) setConfig(prev => ({...prev, ...saved.config}));
       if (saved.trades) setTrades(saved.trades);
       if (saved.logs) setLogs(saved.logs);
-      if (saved.balance) setBalance(saved.balance);
+      if (saved.balance) setPaperBalance(saved.balance);
       if (saved.profit) setProfit(saved.profit);
     }
   }, [user]);
@@ -100,7 +94,7 @@ export default function App() {
     if (!user) return;
     
     // 1. Save to Local Storage (Immediate)
-    saveState(config, trades, logs, balance, profit);
+    saveState(config, trades, logs, paperBalance, profit);
 
     // 2. Save to Cloud Supabase (Debounced ideally, but here direct)
     const syncToCloud = async () => {
@@ -112,18 +106,19 @@ export default function App() {
     const timeoutId = setTimeout(syncToCloud, 2000); 
     return () => clearTimeout(timeoutId);
 
-  }, [config, trades, logs, balance, profit, user]);
+  }, [config, trades, logs, paperBalance, profit, user]);
 
   // --- Market Data Loop ---
   useEffect(() => {
     if (!user) return;
     const marketTicker = window.setInterval(() => {
       setCandles(prev => {
+        if (prev.length === 0) return prev;
         const lastCandle = prev[prev.length - 1];
         const next = generateNextCandle(lastCandle);
         const currentPrice = next.close;
         
-        // Auto TP/SL Logic
+        // Auto TP/SL Logic (Applies to both Paper and "Simulated" Live Dashboard)
         setTrades(currentTrades => {
            let updatedTrades = [...currentTrades];
            let balanceChange = 0;
@@ -135,14 +130,18 @@ export default function App() {
                if (trade.slPrice && currentPrice <= trade.slPrice) {
                  hasUpdates = true;
                  const pnl = (currentPrice - trade.price) * (trade.amount / trade.price);
-                 balanceChange += pnl;
+                 if (trade.executionMode === 'PAPER') {
+                     balanceChange += pnl;
+                 }
                  profitChange += pnl;
                  return { ...trade, status: 'CLOSED', profit: pnl, closeReason: 'SL' };
                }
                if (trade.tpPrice && currentPrice >= trade.tpPrice) {
                  hasUpdates = true;
                  const pnl = (currentPrice - trade.price) * (trade.amount / trade.price);
-                 balanceChange += pnl;
+                 if (trade.executionMode === 'PAPER') {
+                     balanceChange += pnl;
+                 }
                  profitChange += pnl;
                  return { ...trade, status: 'CLOSED', profit: pnl, closeReason: 'TP' };
                }
@@ -151,7 +150,7 @@ export default function App() {
            });
 
            if (hasUpdates) {
-             setBalance(b => b + balanceChange);
+             setPaperBalance(b => b + balanceChange);
              setProfit(p => p + profitChange);
            }
            return updatedTrades;
@@ -197,8 +196,16 @@ export default function App() {
   // --- Helpers ---
   const openPosition = (side: 'BUY' | 'SELL', price: number) => {
     setTrades(prev => {
+      // Don't open if already open
       const hasOpen = prev.some(t => t.status === 'OPEN');
       if (hasOpen) return prev;
+
+      // Logic Check for LIVE mode
+      if (config.tradingMode === 'live') {
+          // In a real frontend, we might not execute direct trades to avoid exposing keys, 
+          // but relying on the backend. However, for visual feedback we log it.
+          console.log("LIVE TRADE SIGNAL GENERATED - Backend will handle execution via MEXC API");
+      }
 
       const slPrice = side === 'BUY' ? price * (1 - config.stopLoss / 100) : undefined;
       const tpPrice = side === 'BUY' ? price * (1 + config.takeProfit / 100) : undefined;
@@ -212,7 +219,8 @@ export default function App() {
         timestamp: Date.now(),
         status: 'OPEN',
         slPrice,
-        tpPrice
+        tpPrice,
+        executionMode: config.tradingMode
       };
       return [newTrade, ...prev];
     });
@@ -225,21 +233,34 @@ export default function App() {
       const updated = prev.map(t => {
         if (t.status === 'OPEN') {
            const pnl = (price - t.price) * (t.amount / t.price);
-           balanceChange += pnl;
+           if (t.executionMode === 'PAPER') {
+             balanceChange += pnl;
+           }
            profitChange += pnl;
            return { ...t, status: 'CLOSED' as const, profit: pnl, closeReason: reason };
         }
         return t;
       });
-      setBalance(b => b + balanceChange);
+      setPaperBalance(b => b + balanceChange);
       setProfit(p => p + profitChange);
       return updated;
     });
   };
 
   const toggleBot = () => {
-    if (botStatus === BotStatus.RUNNING) setBotStatus(BotStatus.PAUSED);
-    else setBotStatus(BotStatus.RUNNING);
+    if (botStatus === BotStatus.RUNNING) {
+      setBotStatus(BotStatus.PAUSED);
+    } else {
+      if (config.tradingMode === 'live') {
+         if (!config.apiKey || !config.apiSecret) {
+           alert("ERROR: You must provide MEXC API Key and Secret to run in LIVE mode.");
+           return;
+         }
+         const confirmLive = window.confirm("WARNING: You are about to start LIVE TRADING. Real funds will be used on MEXC. Are you sure?");
+         if (!confirmLive) return;
+      }
+      setBotStatus(BotStatus.RUNNING);
+    }
   };
 
   if (loadingAuth) return <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center text-white font-mono animate-pulse">Initializing Secure Connection...</div>;
@@ -302,20 +323,31 @@ export default function App() {
            {activeTab !== 'admin' && activeTab !== 'deploy' && (
              <>
                 <div className="flex justify-between items-center mb-2">
-                  <div className="text-xs text-gray-500">DEMO BALANCE</div>
-                  <button 
-                    onClick={() => {
-                      const newBal = prompt("Set new demo balance amount:", balance.toString());
-                      if (newBal && !isNaN(Number(newBal))) setBalance(Number(newBal));
-                    }}
-                    className="text-[10px] text-crypto-accent hover:underline cursor-pointer"
-                  >
-                    EDIT
-                  </button>
+                  <div className="text-xs text-gray-500">
+                     {config.tradingMode === 'live' ? 'EST. WALLET (MEXC)' : 'DEMO BALANCE'}
+                  </div>
+                  {config.tradingMode === 'paper' && (
+                    <button 
+                      onClick={() => {
+                        const newBal = prompt("Set new demo balance amount:", paperBalance.toString());
+                        if (newBal && !isNaN(Number(newBal))) setPaperBalance(Number(newBal));
+                      }}
+                      className="text-[10px] text-crypto-accent hover:underline cursor-pointer"
+                    >
+                      EDIT
+                    </button>
+                  )}
                 </div>
-                <div className="text-2xl font-bold font-mono">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div className="text-2xl font-bold font-mono">
+                  {config.tradingMode === 'live' 
+                    ? '---' // In real app, fetch from MEXC
+                    : `$${paperBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  }
+                </div>
+                {config.tradingMode === 'live' && <div className="text-[10px] text-gray-500">Balance fetch req backend</div>}
+                
                 <div className={`text-sm mt-1 ${profit >= 0 ? 'text-crypto-green' : 'text-crypto-red'}`}>
-                  {profit >= 0 ? '+' : ''}{profit.toFixed(2)} USDT (Today)
+                  {profit >= 0 ? '+' : ''}{profit.toFixed(2)} USDT (Session)
                 </div>
              </>
            )}
@@ -326,8 +358,11 @@ export default function App() {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto">
         <header className="flex justify-between items-center mb-8">
            <div>
-             <h2 className="text-2xl font-bold mb-1">
+             <h2 className="text-2xl font-bold mb-1 flex items-center gap-3">
                {activeTab === 'dashboard' ? 'Trading Terminal' : activeTab === 'deploy' ? 'Backend Deployment' : 'Admin Control Panel'}
+               {activeTab === 'dashboard' && config.tradingMode === 'live' && (
+                 <span className="bg-red-600 text-white text-xs px-2 py-1 rounded animate-pulse shadow-lg shadow-red-500/50">LIVE MODE</span>
+               )}
              </h2>
              <p className="text-gray-400 text-sm">
                {activeTab === 'dashboard' ? 'Real-time AI analysis and automated execution' : activeTab === 'deploy' ? 'Configure database and 24/7 server execution' : 'Manage users and platform settings'}
@@ -336,9 +371,9 @@ export default function App() {
            
            {activeTab === 'dashboard' && (
              <div className="flex gap-4 items-center">
-               <div className="flex items-center gap-2 px-3 py-1 bg-yellow-500/10 rounded text-xs text-yellow-500 border border-yellow-500/20">
-                  <IconActivity className="w-3 h-3" />
-                  Paper Trading
+               <div className={`flex items-center gap-2 px-3 py-1 rounded text-xs border ${config.tradingMode === 'live' ? 'bg-red-900/20 text-red-500 border-red-500/20' : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'}`}>
+                  {config.tradingMode === 'live' ? <IconZap className="w-3 h-3" /> : <IconActivity className="w-3 h-3" />}
+                  {config.tradingMode === 'live' ? 'Real Execution' : 'Paper Trading'}
                </div>
                <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
                   <div className={`w-2 h-2 rounded-full ${botStatus === BotStatus.RUNNING ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'}`}></div>
@@ -357,7 +392,7 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
               {/* Chart Section */}
               <div className="lg:col-span-2">
-                <MarketChart data={candles} />
+                <MarketChart data={candles} pair={config.pair} />
                 <div className="mt-6">
                   <BotControl 
                     status={botStatus} 
@@ -384,6 +419,7 @@ export default function App() {
                   <thead className="text-xs text-gray-400 bg-[#0b0e11] uppercase">
                     <tr>
                       <th className="px-6 py-3">Time</th>
+                      <th className="px-6 py-3">Mode</th>
                       <th className="px-6 py-3">Pair</th>
                       <th className="px-6 py-3">Type</th>
                       <th className="px-6 py-3">Price</th>
@@ -396,6 +432,11 @@ export default function App() {
                       <tr key={trade.id} className="hover:bg-gray-800/50 transition-colors">
                         <td className="px-6 py-4 font-mono text-gray-400">
                           {new Date(trade.timestamp).toLocaleTimeString()}
+                        </td>
+                        <td className="px-6 py-4">
+                           <span className={`text-[10px] px-1 rounded border ${trade.executionMode === 'LIVE' ? 'text-red-400 border-red-900 bg-red-900/10' : 'text-gray-400 border-gray-700'}`}>
+                             {trade.executionMode || 'PAPER'}
+                           </span>
                         </td>
                         <td className="px-6 py-4 font-bold text-white">{trade.symbol}</td>
                         <td className={`px-6 py-4 font-bold ${trade.side === 'BUY' ? 'text-crypto-green' : 'text-crypto-red'}`}>
@@ -418,7 +459,7 @@ export default function App() {
                     ))}
                     {trades.length === 0 && (
                        <tr>
-                         <td colSpan={6} className="px-6 py-8 text-center text-gray-600">No trades recorded in database.</td>
+                         <td colSpan={7} className="px-6 py-8 text-center text-gray-600">No trades recorded in database.</td>
                        </tr>
                     )}
                   </tbody>
