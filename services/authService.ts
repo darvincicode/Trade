@@ -13,6 +13,20 @@ export const authService = {
   // --- Auth Methods ---
   
   login: async (emailOrUsername: string, password: string): Promise<{ user: User | null; error?: string }> => {
+    // 1. HARDCODED ADMIN ACCESS (As requested)
+    // This allows login even if the user doesn't exist in Supabase yet.
+    if (emailOrUsername.toLowerCase() === 'admin' && password === '123456') {
+      return {
+        user: {
+          id: 'admin-master-id',
+          email: 'admin@astrotrade.local',
+          role: 'admin',
+          createdAt: Date.now()
+        }
+      };
+    }
+
+    // 2. Standard Supabase Login
     const email = normalizeEmail(emailOrUsername);
     
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -26,7 +40,6 @@ export const authService = {
 
     if (data.user) {
       // Fetch role from metadata or profiles table
-      // We prioritize metadata for speed, but syncing with profiles is better practice
       const role = data.user.user_metadata?.role as UserRole || 'user';
       
       const user: User = {
@@ -76,6 +89,8 @@ export const authService = {
   },
 
   getSession: async (): Promise<User | null> => {
+    // Check if we have a mock session in local storage or just rely on Supabase
+    // For this demo, we'll check Supabase first.
     const { data } = await supabase.auth.getSession();
     if (data.session?.user) {
        const u = data.session.user;
@@ -92,14 +107,45 @@ export const authService = {
   // --- Admin Methods ---
 
   getAllUsers: async (): Promise<User[]> => {
-    // We query the 'profiles' table which we will create via SQL
+    // Try to fetch real data
     const { data, error } = await supabase
       .from('profiles')
       .select('*');
 
-    if (error) {
-      console.error("Error fetching users:", error);
-      return [];
+    // If Supabase tables aren't set up yet or return error, return MOCK DATA
+    // so the admin panel is "filled with database" as requested.
+    if (error || !data || data.length === 0) {
+      console.warn("Using Mock Data for Admin Panel (Database not connected or empty)");
+      return [
+        {
+          id: 'admin-master-id',
+          email: 'admin@astrotrade.local',
+          role: 'admin',
+          createdAt: Date.now() - 1000000,
+          password: '***'
+        },
+        {
+          id: 'user-001',
+          email: 'trader_pro@gmail.com',
+          role: 'user',
+          createdAt: Date.now() - 500000,
+          password: '***'
+        },
+        {
+          id: 'user-002',
+          email: 'crypto_whale@yahoo.com',
+          role: 'user',
+          createdAt: Date.now() - 250000,
+          password: '***'
+        },
+        {
+          id: 'user-003',
+          email: 'newbie_investor@outlook.com',
+          role: 'user',
+          createdAt: Date.now() - 10000,
+          password: '***'
+        }
+      ];
     }
 
     return data.map((p: any) => ({
@@ -112,16 +158,17 @@ export const authService = {
   },
 
   updateUserPassword: async (id: string, newPassword: string) => {
-    // Client-side SDK cannot update ANOTHER user's password directly for security.
-    // However, if it's the CURRENT user, we can.
     const { data: { user } } = await supabase.auth.getUser();
     
-    if (user && user.id === id) {
-      await supabase.auth.updateUser({ password: newPassword });
+    // Allow updating if it's the current user OR if it's our hardcoded admin
+    if (id === 'admin-master-id' || (user && user.id === id)) {
+      if (id !== 'admin-master-id') {
+         await supabase.auth.updateUser({ password: newPassword });
+      } else {
+        console.log("Mock Admin Password 'Updated' (In-memory only)");
+      }
     } else {
-      // For Admin managing others: trigger a reset password email
-      // Note: We need the email to do this.
-      console.warn("Admin cannot directly set passwords for others via client SDK. Use reset password email.");
+      console.warn("Admin cannot directly set passwords for others via client SDK.");
     }
   },
   
@@ -130,8 +177,10 @@ export const authService = {
   },
 
   deleteUser: async (id: string) => {
-    // Soft delete: We can delete from 'profiles'. 
-    // Hard delete from Auth requires Service Role Key (Backend).
+    if (id.startsWith('user-')) {
+       console.log("Mock user deleted");
+       return;
+    }
     await supabase.from('profiles').delete().eq('id', id);
   }
 };
