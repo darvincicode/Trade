@@ -1,108 +1,137 @@
-import { User } from '../types';
+import { supabase } from './supabaseClient';
+import { User, UserRole } from '../types';
 
-const USERS_KEY = 'astro_auth_users';
-const SESSION_KEY = 'astro_auth_session';
-
-// Seed default admin if not exists
-const seedAdmin = () => {
-  if (typeof window === 'undefined') return;
-  const usersStr = localStorage.getItem(USERS_KEY);
-  let users: User[] = usersStr ? JSON.parse(usersStr) : [];
-  
-  if (!users.find(u => u.email === 'admin')) {
-    const adminUser: User = {
-      id: 'admin-id',
-      email: 'admin',
-      password: '123456', // In a real app, this would be hashed
-      role: 'admin',
-      createdAt: Date.now()
-    };
-    users.push(adminUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// Helper to map "admin" username to a valid email format for Supabase
+const normalizeEmail = (input: string) => {
+  if (input.toLowerCase() === 'admin') {
+    return 'admin@astrotrade.local';
   }
+  return input;
 };
-
-seedAdmin();
 
 export const authService = {
   // --- Auth Methods ---
   
-  login: async (email: string, password: string): Promise<{ user: User | null; error?: string }> => {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+  login: async (emailOrUsername: string, password: string): Promise<{ user: User | null; error?: string }> => {
+    const email = normalizeEmail(emailOrUsername);
     
-    const users: User[] = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    const user = users.find(u => u.email === email && u.password === password);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    if (user) {
-      const safeUser = { ...user };
-      delete safeUser.password; // Don't return password in session
-      localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-      return { user: safeUser };
+    if (error) {
+      return { user: null, error: error.message };
+    }
+
+    if (data.user) {
+      // Fetch role from metadata or profiles table
+      // We prioritize metadata for speed, but syncing with profiles is better practice
+      const role = data.user.user_metadata?.role as UserRole || 'user';
+      
+      const user: User = {
+        id: data.user.id,
+        email: data.user.email || '',
+        role: role,
+        createdAt: new Date(data.user.created_at).getTime()
+      };
+      
+      return { user };
     }
     
-    return { user: null, error: 'Invalid email or password' };
+    return { user: null, error: 'Login failed' };
   },
 
   signUp: async (email: string, password: string): Promise<{ user: User | null; error?: string }> => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const users: User[] = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    
-    if (users.find(u => u.email === email)) {
-      return { user: null, error: 'User already exists' };
-    }
-
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
+    // Default role is user
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      role: 'user',
-      createdAt: Date.now()
-    };
+      options: {
+        data: {
+          role: 'user'
+        }
+      }
+    });
 
-    users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    
-    // Auto login after signup
-    const safeUser = { ...newUser };
-    delete safeUser.password;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
+    if (error) {
+      return { user: null, error: error.message };
+    }
 
-    return { user: safeUser };
+    if (data.user) {
+      const user: User = {
+        id: data.user.id,
+        email: data.user.email || '',
+        role: 'user',
+        createdAt: Date.now()
+      };
+      return { user };
+    }
+
+    return { user: null, error: 'Signup failed' };
   },
 
-  logout: () => {
-    localStorage.removeItem(SESSION_KEY);
+  logout: async () => {
+    await supabase.auth.signOut();
   },
 
-  getSession: (): User | null => {
-    const sessionStr = localStorage.getItem(SESSION_KEY);
-    return sessionStr ? JSON.parse(sessionStr) : null;
+  getSession: async (): Promise<User | null> => {
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user) {
+       const u = data.session.user;
+       return {
+         id: u.id,
+         email: u.email || '',
+         role: (u.user_metadata?.role as UserRole) || 'user',
+         createdAt: new Date(u.created_at).getTime()
+       };
+    }
+    return null;
   },
 
   // --- Admin Methods ---
 
-  getAllUsers: (): User[] => {
-    const users: User[] = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    // Return users without passwords for display, except we need to manage them internally
-    return users; 
+  getAllUsers: async (): Promise<User[]> => {
+    // We query the 'profiles' table which we will create via SQL
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*');
+
+    if (error) {
+      console.error("Error fetching users:", error);
+      return [];
+    }
+
+    return data.map((p: any) => ({
+      id: p.id,
+      email: p.email,
+      role: p.role,
+      createdAt: new Date(p.created_at).getTime(),
+      password: '***' // Cannot retrieve hash
+    }));
   },
 
-  updateUserPassword: (id: string, newPassword: string) => {
-    const users: User[] = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    const updatedUsers = users.map(u => {
-      if (u.id === id) {
-        return { ...u, password: newPassword };
-      }
-      return u;
-    });
-    localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
+  updateUserPassword: async (id: string, newPassword: string) => {
+    // Client-side SDK cannot update ANOTHER user's password directly for security.
+    // However, if it's the CURRENT user, we can.
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (user && user.id === id) {
+      await supabase.auth.updateUser({ password: newPassword });
+    } else {
+      // For Admin managing others: trigger a reset password email
+      // Note: We need the email to do this.
+      console.warn("Admin cannot directly set passwords for others via client SDK. Use reset password email.");
+    }
+  },
+  
+  sendPasswordReset: async (email: string) => {
+      await supabase.auth.resetPasswordForEmail(email);
   },
 
-  deleteUser: (id: string) => {
-    let users: User[] = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    users = users.filter(u => u.id !== id);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  deleteUser: async (id: string) => {
+    // Soft delete: We can delete from 'profiles'. 
+    // Hard delete from Auth requires Service Role Key (Backend).
+    await supabase.from('profiles').delete().eq('id', id);
   }
 };

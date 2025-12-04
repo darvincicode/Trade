@@ -54,17 +54,19 @@ export default function App() {
 
   // --- Auth Effect ---
   useEffect(() => {
-    const session = authService.getSession();
-    if (session) {
-      setUser(session);
-      // If admin, default to admin view on first load
-      if (session.role === 'admin') setActiveTab('admin');
-    }
-    setLoadingAuth(false);
+    const checkSession = async () => {
+      const session = await authService.getSession();
+      if (session) {
+        setUser(session);
+        if (session.role === 'admin') setActiveTab('admin');
+      }
+      setLoadingAuth(false);
+    };
+    checkSession();
   }, []);
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await authService.logout();
     setUser(null);
     setBotStatus(BotStatus.IDLE); // Stop bot on logout
   };
@@ -216,7 +218,7 @@ export default function App() {
     else setBotStatus(BotStatus.RUNNING);
   };
 
-  if (loadingAuth) return <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center text-white">Loading...</div>;
+  if (loadingAuth) return <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center text-white font-mono animate-pulse">Initializing Secure Connection...</div>;
 
   if (!user) {
     return <AuthScreen onLogin={setUser} />;
