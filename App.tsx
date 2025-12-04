@@ -238,8 +238,19 @@ export default function App() {
         </nav>
 
         <div className="p-6 border-t border-gray-800">
-           <div className="text-xs text-gray-500 mb-2">ACCOUNT BALANCE</div>
-           <div className="text-2xl font-bold font-mono">${balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+           <div className="flex justify-between items-center mb-2">
+             <div className="text-xs text-gray-500">DEMO BALANCE</div>
+             <button 
+               onClick={() => {
+                 const newBal = prompt("Set new demo balance amount:", balance.toString());
+                 if (newBal && !isNaN(Number(newBal))) setBalance(Number(newBal));
+               }}
+               className="text-[10px] text-crypto-accent hover:underline cursor-pointer"
+             >
+               EDIT
+             </button>
+           </div>
+           <div className="text-2xl font-bold font-mono">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
            <div className={`text-sm mt-1 ${profit >= 0 ? 'text-crypto-green' : 'text-crypto-red'}`}>
              {profit >= 0 ? '+' : ''}{profit.toFixed(2)} USDT (Today)
            </div>
@@ -258,6 +269,10 @@ export default function App() {
              </p>
            </div>
            <div className="flex gap-4 items-center">
+             <div className="flex items-center gap-2 px-3 py-1 bg-yellow-500/10 rounded text-xs text-yellow-500 border border-yellow-500/20">
+                <IconActivity className="w-3 h-3" />
+                Paper Trading
+             </div>
              <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
                 <div className={`w-2 h-2 rounded-full ${botStatus === BotStatus.RUNNING ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'}`}></div>
                 {botStatus === BotStatus.RUNNING ? 'System Online' : 'System Idle'}
