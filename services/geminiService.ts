@@ -3,17 +3,23 @@ import { Candle, MarketNews, AIAnalysisResult, BotConfig } from '../types';
 
 let genAI: GoogleGenAI | null = null;
 
-// Safe access to environment variable
+// HARDCODED KEY FOR DEMO PURPOSES
+// In production, use process.env.API_KEY via a secure backend proxy
+const HARDCODED_KEY = "AIzaSyCBcqvrdjXtr5bCL19LFNR0uhUdum8axw0";
+
+// Safe access to environment variable or hardcoded key
 const getApiKey = () => {
   try {
-    // Check if process is defined (node/bundled env) to avoid ReferenceError
+    // 1. Check if process is defined (node/bundled env)
     if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
       return process.env.API_KEY;
     }
   } catch (e) {
     console.warn("Environment access error:", e);
   }
-  return null;
+  
+  // 2. Return the provided key if env var is missing
+  return HARDCODED_KEY;
 };
 
 const getAIClient = () => {
