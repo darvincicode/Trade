@@ -23,6 +23,15 @@
         },
       }
     </script>
+    <script>
+      // Polyfill for process.env to work in browser environment
+      window.process = {
+        env: {
+          NODE_ENV: 'development',
+          API_KEY: 'AIzaSyCBcqvrdjXtr5bCL19LFNR0uhUdum8axw0'
+        }
+      };
+    </script>
     <style>
       body {
         background-color: #0b0e11;
