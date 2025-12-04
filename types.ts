@@ -23,6 +23,9 @@ export interface Trade {
   timestamp: number;
   profit?: number;
   status: 'OPEN' | 'CLOSED';
+  slPrice?: number;
+  tpPrice?: number;
+  closeReason?: 'TP' | 'SL' | 'SIGNAL' | 'MANUAL';
 }
 
 export interface MarketNews {
@@ -47,4 +50,6 @@ export interface BotConfig {
   amountPerTrade: number;
   riskTolerance: 'conservative' | 'aggressive';
   aiInterval: number; // in seconds
+  stopLoss: number; // percentage
+  takeProfit: number; // percentage
 }
