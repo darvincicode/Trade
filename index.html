@@ -6,6 +6,26 @@
     <title>AstroTrade AI - MEXC Bot</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Error Handler: If the app crashes, show the error on screen instead of a blank page
+      window.onerror = function(message, source, lineno, colno, error) {
+        const root = document.getElementById('root');
+        const errDiv = document.createElement('div');
+        errDiv.style.color = '#ff4444';
+        errDiv.style.backgroundColor = '#1a1a1a';
+        errDiv.style.padding = '20px';
+        errDiv.style.margin = '20px';
+        errDiv.style.borderRadius = '8px';
+        errDiv.style.fontFamily = 'monospace';
+        errDiv.innerHTML = `
+          <h3>Application Error</h3>
+          <p><strong>Message:</strong> ${message}</p>
+          <p><strong>Source:</strong> ${source}:${lineno}</p>
+          <p>This usually means there is a syntax error or a missing configuration in your deployment.</p>
+        `;
+        document.body.appendChild(errDiv);
+        return false;
+      };
+
       tailwind.config = {
         theme: {
           extend: {
@@ -22,15 +42,6 @@
           },
         },
       }
-    </script>
-    <script>
-      // Polyfill for process.env to work in browser environment
-      window.process = {
-        env: {
-          NODE_ENV: 'development',
-          API_KEY: 'AIzaSyCBcqvrdjXtr5bCL19LFNR0uhUdum8axw0'
-        }
-      };
     </script>
     <style>
       body {

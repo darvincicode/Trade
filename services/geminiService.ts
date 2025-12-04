@@ -1,18 +1,18 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Candle, MarketNews, AIAnalysisResult, BotConfig } from '../types';
 
-// NOTE: In a real app, this should be a backend call to protect the API key.
-// We assume process.env.API_KEY is available.
+// Hardcoded for Vercel Static Deployment
+const API_KEY = 'AIzaSyCBcqvrdjXtr5bCL19LFNR0uhUdum8axw0';
 
 let genAI: GoogleGenAI | null = null;
 
 const getAIClient = () => {
   if (!genAI) {
-    if (!process.env.API_KEY) {
+    if (!API_KEY) {
       console.error("API Key is missing!");
       return null;
     }
-    genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    genAI = new GoogleGenAI({ apiKey: API_KEY });
   }
   return genAI;
 };
@@ -24,11 +24,10 @@ export const analyzeMarket = async (
 ): Promise<AIAnalysisResult> => {
   const client = getAIClient();
   if (!client) {
-    // Fallback if no API key provided for demo purposes
     return {
       action: 'HOLD',
       confidence: 0,
-      reasoning: "API Key missing. Please check metadata or environment variables.",
+      reasoning: "API Key configuration error.",
       riskLevel: 'LOW'
     };
   }
