@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BotStatus, BotConfig, Candle, Trade, AIAnalysisResult } from './types';
+import { BotStatus, BotConfig, Candle, Trade, AIAnalysisResult, User } from './types';
 import { generateNextCandle, getLatestPrice, MOCK_NEWS } from './services/mockMarket';
 import { analyzeMarket } from './services/geminiService';
 import { saveState, loadState } from './services/storage';
+import { authService } from './services/authService';
 import { MarketChart } from './components/Chart';
 import { BotControl } from './components/BotControl';
 import { RecentActivity } from './components/RecentActivity';
 import { DeployTab } from './components/DeployTab';
+import { AuthScreen } from './components/AuthScreen';
+import { AdminPanel } from './components/AdminPanel';
 import { IconBot, IconActivity, IconZap, IconTrendingUp, IconSettings, IconServer } from './components/Icons';
 
 // Initial Mock Data
@@ -23,9 +26,12 @@ const INITIAL_CANDLES: Candle[] = Array.from({ length: 20 }).map((_, i) => {
 });
 
 export default function App() {
-  // --- State ---
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'deploy'>('dashboard');
-  
+  // --- Auth State ---
+  const [user, setUser] = useState<User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+
+  // --- App State ---
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'deploy' | 'admin'>('dashboard');
   const [botStatus, setBotStatus] = useState<BotStatus>(BotStatus.IDLE);
   const [config, setConfig] = useState<BotConfig>({
     apiKey: '',
@@ -44,13 +50,28 @@ export default function App() {
   const [balance, setBalance] = useState<number>(10000);
   const [profit, setProfit] = useState<number>(0);
 
-  // --- Refs ---
   const aiIntervalRef = useRef<number | null>(null);
 
-  // --- Effects ---
-
-  // 1. Load Data from "Database" (LocalStorage)
+  // --- Auth Effect ---
   useEffect(() => {
+    const session = authService.getSession();
+    if (session) {
+      setUser(session);
+      // If admin, default to admin view on first load
+      if (session.role === 'admin') setActiveTab('admin');
+    }
+    setLoadingAuth(false);
+  }, []);
+
+  const handleLogout = () => {
+    authService.logout();
+    setUser(null);
+    setBotStatus(BotStatus.IDLE); // Stop bot on logout
+  };
+
+  // --- Data Loading Effect ---
+  useEffect(() => {
+    if (!user) return; // Only load data if logged in
     const saved = loadState();
     if (saved) {
       if (saved.config) setConfig(saved.config);
@@ -59,23 +80,24 @@ export default function App() {
       if (saved.balance) setBalance(saved.balance);
       if (saved.profit) setProfit(saved.profit);
     }
-  }, []);
+  }, [user]);
 
-  // 2. Auto-Save to "Database" (LocalStorage)
+  // --- Auto-Save Effect ---
   useEffect(() => {
+    if (!user) return;
     saveState(config, trades, logs, balance, profit);
-  }, [config, trades, logs, balance, profit]);
+  }, [config, trades, logs, balance, profit, user]);
 
-  // 3. Market Data Simulation & Position Management Loop
+  // --- Market Data Loop ---
   useEffect(() => {
+    if (!user) return;
     const marketTicker = window.setInterval(() => {
       setCandles(prev => {
         const lastCandle = prev[prev.length - 1];
         const next = generateNextCandle(lastCandle);
         const currentPrice = next.close;
         
-        // --- AUTO TP/SL LOGIC ---
-        // Check open trades and close them if limits hit
+        // Auto TP/SL Logic
         setTrades(currentTrades => {
            let updatedTrades = [...currentTrades];
            let balanceChange = 0;
@@ -84,7 +106,6 @@ export default function App() {
 
            updatedTrades = updatedTrades.map(trade => {
              if (trade.status === 'OPEN' && trade.side === 'BUY') {
-               // Check Stop Loss
                if (trade.slPrice && currentPrice <= trade.slPrice) {
                  hasUpdates = true;
                  const pnl = (currentPrice - trade.price) * (trade.amount / trade.price);
@@ -92,7 +113,6 @@ export default function App() {
                  profitChange += pnl;
                  return { ...trade, status: 'CLOSED', profit: pnl, closeReason: 'SL' };
                }
-               // Check Take Profit
                if (trade.tpPrice && currentPrice >= trade.tpPrice) {
                  hasUpdates = true;
                  const pnl = (currentPrice - trade.price) * (trade.amount / trade.price);
@@ -117,14 +137,13 @@ export default function App() {
     }, 2000);
 
     return () => clearInterval(marketTicker);
-  }, []); // Run setup once, but internal state setters access fresh state
+  }, [user]); 
 
-  // 4. Bot Logic Loop
+  // --- Bot Logic Loop ---
   useEffect(() => {
-    if (botStatus === BotStatus.RUNNING) {
+    if (botStatus === BotStatus.RUNNING && user) {
       const runAnalysis = async () => {
         const result = await analyzeMarket(candles, MOCK_NEWS, config);
-        
         const timestamp = new Date().toLocaleTimeString();
         setLogs(prev => [{ time: timestamp, result }, ...prev].slice(0, 50));
 
@@ -147,13 +166,11 @@ export default function App() {
     return () => {
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
     };
-  }, [botStatus, config.aiInterval]); // Warning: Stale closure on 'candles' for analysis is a known limitation in this demo.
-  
-  // --- Helpers ---
+  }, [botStatus, config.aiInterval, user]);
 
+  // --- Helpers ---
   const openPosition = (side: 'BUY' | 'SELL', price: number) => {
     setTrades(prev => {
-      // Don't open if already have an open position (Simple Strategy)
       const hasOpen = prev.some(t => t.status === 'OPEN');
       if (hasOpen) return prev;
 
@@ -171,7 +188,6 @@ export default function App() {
         slPrice,
         tpPrice
       };
-      
       return [newTrade, ...prev];
     });
   };
@@ -180,17 +196,15 @@ export default function App() {
     setTrades(prev => {
       let balanceChange = 0;
       let profitChange = 0;
-      
       const updated = prev.map(t => {
         if (t.status === 'OPEN') {
-           const pnl = (price - t.price) * (t.amount / t.price); // Simplified PnL for BUY
+           const pnl = (price - t.price) * (t.amount / t.price);
            balanceChange += pnl;
            profitChange += pnl;
            return { ...t, status: 'CLOSED' as const, profit: pnl, closeReason: reason };
         }
         return t;
       });
-      
       setBalance(b => b + balanceChange);
       setProfit(p => p + profitChange);
       return updated;
@@ -201,6 +215,12 @@ export default function App() {
     if (botStatus === BotStatus.RUNNING) setBotStatus(BotStatus.PAUSED);
     else setBotStatus(BotStatus.RUNNING);
   };
+
+  if (loadingAuth) return <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center text-white">Loading...</div>;
+
+  if (!user) {
+    return <AuthScreen onLogin={setUser} />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-[#0b0e11] text-white font-sans selection:bg-crypto-green selection:text-black">
@@ -222,12 +242,7 @@ export default function App() {
             <IconActivity className="w-5 h-5" />
             <span className="font-medium">Dashboard</span>
           </div>
-          <div 
-             className="p-3 text-gray-400 hover:text-white hover:bg-gray-800 rounded flex items-center gap-3 cursor-pointer transition-colors"
-          >
-            <IconTrendingUp className="w-5 h-5" />
-            <span className="font-medium">Markets</span>
-          </div>
+
           <div 
              onClick={() => setActiveTab('deploy')}
              className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'deploy' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
@@ -235,25 +250,47 @@ export default function App() {
              <IconServer className="w-5 h-5" />
              <span className="font-medium">Deploy / DB</span>
           </div>
+
+          {user.role === 'admin' && (
+            <div 
+               onClick={() => setActiveTab('admin')}
+               className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'admin' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+            >
+               <IconSettings className="w-5 h-5" />
+               <span className="font-medium">Admin Panel</span>
+            </div>
+          )}
         </nav>
 
         <div className="p-6 border-t border-gray-800">
-           <div className="flex justify-between items-center mb-2">
-             <div className="text-xs text-gray-500">DEMO BALANCE</div>
-             <button 
-               onClick={() => {
-                 const newBal = prompt("Set new demo balance amount:", balance.toString());
-                 if (newBal && !isNaN(Number(newBal))) setBalance(Number(newBal));
-               }}
-               className="text-[10px] text-crypto-accent hover:underline cursor-pointer"
-             >
-               EDIT
-             </button>
+           <div className="flex justify-between items-center mb-4">
+             <div className="text-xs text-gray-400">
+               Signed in as <br/>
+               <span className="text-white font-bold">{user.email}</span>
+             </div>
+             <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 border border-red-900 bg-red-900/10 px-2 py-1 rounded">Logout</button>
            </div>
-           <div className="text-2xl font-bold font-mono">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-           <div className={`text-sm mt-1 ${profit >= 0 ? 'text-crypto-green' : 'text-crypto-red'}`}>
-             {profit >= 0 ? '+' : ''}{profit.toFixed(2)} USDT (Today)
-           </div>
+           
+           {activeTab !== 'admin' && (
+             <>
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-xs text-gray-500">DEMO BALANCE</div>
+                  <button 
+                    onClick={() => {
+                      const newBal = prompt("Set new demo balance amount:", balance.toString());
+                      if (newBal && !isNaN(Number(newBal))) setBalance(Number(newBal));
+                    }}
+                    className="text-[10px] text-crypto-accent hover:underline cursor-pointer"
+                  >
+                    EDIT
+                  </button>
+                </div>
+                <div className="text-2xl font-bold font-mono">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div className={`text-sm mt-1 ${profit >= 0 ? 'text-crypto-green' : 'text-crypto-red'}`}>
+                  {profit >= 0 ? '+' : ''}{profit.toFixed(2)} USDT (Today)
+                </div>
+             </>
+           )}
         </div>
       </aside>
 
@@ -262,26 +299,29 @@ export default function App() {
         <header className="flex justify-between items-center mb-8">
            <div>
              <h2 className="text-2xl font-bold mb-1">
-               {activeTab === 'dashboard' ? 'Trading Terminal' : 'Backend Deployment'}
+               {activeTab === 'dashboard' ? 'Trading Terminal' : activeTab === 'deploy' ? 'Backend Deployment' : 'Admin Control Panel'}
              </h2>
              <p className="text-gray-400 text-sm">
-               {activeTab === 'dashboard' ? 'Real-time AI analysis and automated execution' : 'Configure database and 24/7 server execution'}
+               {activeTab === 'dashboard' ? 'Real-time AI analysis and automated execution' : activeTab === 'deploy' ? 'Configure database and 24/7 server execution' : 'Manage users and platform settings'}
              </p>
            </div>
-           <div className="flex gap-4 items-center">
-             <div className="flex items-center gap-2 px-3 py-1 bg-yellow-500/10 rounded text-xs text-yellow-500 border border-yellow-500/20">
-                <IconActivity className="w-3 h-3" />
-                Paper Trading
+           
+           {activeTab === 'dashboard' && (
+             <div className="flex gap-4 items-center">
+               <div className="flex items-center gap-2 px-3 py-1 bg-yellow-500/10 rounded text-xs text-yellow-500 border border-yellow-500/20">
+                  <IconActivity className="w-3 h-3" />
+                  Paper Trading
+               </div>
+               <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
+                  <div className={`w-2 h-2 rounded-full ${botStatus === BotStatus.RUNNING ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'}`}></div>
+                  {botStatus === BotStatus.RUNNING ? 'System Online' : 'System Idle'}
+               </div>
+               <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
+                  <IconZap className="w-3 h-3 text-crypto-accent" />
+                  Gemini 2.5 Flash
+               </div>
              </div>
-             <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
-                <div className={`w-2 h-2 rounded-full ${botStatus === BotStatus.RUNNING ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'}`}></div>
-                {botStatus === BotStatus.RUNNING ? 'System Online' : 'System Idle'}
-             </div>
-             <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
-                <IconZap className="w-3 h-3 text-crypto-accent" />
-                Gemini 2.5 Flash
-             </div>
-           </div>
+           )}
         </header>
 
         {activeTab === 'dashboard' ? (
@@ -358,8 +398,10 @@ export default function App() {
               </div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'deploy' ? (
           <DeployTab />
+        ) : (
+          <AdminPanel currentUser={user} />
         )}
       </main>
     </div>

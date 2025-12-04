@@ -53,3 +53,13 @@ export interface BotConfig {
   stopLoss: number; // percentage
   takeProfit: number; // percentage
 }
+
+export type UserRole = 'admin' | 'user';
+
+export interface User {
+  id: string;
+  email: string; // Or username for admin
+  password?: string; // Only used internally in mock service, never exposed in real app
+  role: UserRole;
+  createdAt: number;
+}
