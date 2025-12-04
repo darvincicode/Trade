@@ -1,6 +1,6 @@
 import React from 'react';
 import { BotStatus, BotConfig } from '../types';
-import { IconPlay, IconPause } from './Icons';
+import { IconPlay, IconPause, IconDatabase } from './Icons';
 
 interface BotControlProps {
   status: BotStatus;
@@ -13,7 +13,7 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
   const isRunning = status === BotStatus.RUNNING;
 
   return (
-    <div className="bg-crypto-panel p-6 rounded-lg border border-gray-800 shadow-xl">
+    <div className="bg-crypto-panel p-6 rounded-lg border border-gray-800 shadow-xl relative">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           Bot Status: 
@@ -21,6 +21,7 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
              {status}
           </span>
         </h2>
+        
         <button
           onClick={onToggle}
           className={`flex items-center gap-2 px-6 py-2 rounded font-bold transition-all ${
@@ -136,17 +137,17 @@ export const BotControl: React.FC<BotControlProps> = ({ status, config, onToggle
            </div>
         </div>
 
-        <div className="pt-2 border-t border-gray-800 mt-4">
-           <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">API Connection Status</span>
-              <span className={`text-xs ${config.apiKey && config.apiSecret ? 'text-crypto-green' : 'text-orange-500'}`}>
-                {config.apiKey && config.apiSecret ? 'Credentials Set' : 'Missing Credentials'}
+        <div className="pt-2 border-t border-gray-800 mt-4 flex items-center justify-between">
+           <div className="flex flex-col">
+              <span className="text-xs text-gray-500">API Status</span>
+              <span className={`text-xs font-bold ${config.apiKey && config.apiSecret ? 'text-crypto-green' : 'text-orange-500'}`}>
+                {config.apiKey && config.apiSecret ? 'Connected' : 'Missing Keys'}
               </span>
            </div>
-           <p className="text-[10px] text-gray-600 mt-1">
-             * To run 24/7 when this tab is closed, deploy this logic to a Node.js server. 
-             This dashboard simulates the behavior in real-time.
-           </p>
+           <div className="flex items-center gap-1 text-[10px] text-gray-500">
+             <IconDatabase className="w-3 h-3" />
+             <span>Auto-sync to DB active</span>
+           </div>
         </div>
       </div>
     </div>

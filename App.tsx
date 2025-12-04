@@ -4,13 +4,14 @@ import { generateNextCandle, getLatestPrice, MOCK_NEWS } from './services/mockMa
 import { analyzeMarket } from './services/geminiService';
 import { saveState, loadState } from './services/storage';
 import { authService } from './services/authService';
+import { cloudService } from './services/cloudService';
 import { MarketChart } from './components/Chart';
 import { BotControl } from './components/BotControl';
 import { RecentActivity } from './components/RecentActivity';
 import { DeployTab } from './components/DeployTab';
 import { AuthScreen } from './components/AuthScreen';
 import { AdminPanel } from './components/AdminPanel';
-import { IconBot, IconActivity, IconZap, IconTrendingUp, IconSettings, IconServer } from './components/Icons';
+import { IconBot, IconActivity, IconZap, IconTrendingUp, IconSettings, IconServer, IconDatabase } from './components/Icons';
 
 // Initial Mock Data
 const INITIAL_CANDLES: Candle[] = Array.from({ length: 20 }).map((_, i) => {
@@ -49,6 +50,7 @@ export default function App() {
   const [logs, setLogs] = useState<{ time: string; result: AIAnalysisResult }[]>([]);
   const [balance, setBalance] = useState<number>(10000);
   const [profit, setProfit] = useState<number>(0);
+  const [isCloudSynced, setIsCloudSynced] = useState(false);
 
   const aiIntervalRef = useRef<number | null>(null);
 
@@ -59,6 +61,13 @@ export default function App() {
       if (session) {
         setUser(session);
         if (session.role === 'admin') setActiveTab('admin');
+        
+        // Load cloud config if available
+        const cloudConfig = await cloudService.loadConfig(session.id);
+        if (cloudConfig) {
+          setConfig(cloudConfig);
+          setIsCloudSynced(true);
+        }
       }
       setLoadingAuth(false);
     };
@@ -72,12 +81,13 @@ export default function App() {
     setActiveTab('dashboard'); // Reset tab
   };
 
-  // --- Data Loading Effect ---
+  // --- Data Loading Effect (Local Storage) ---
   useEffect(() => {
     if (!user) return; // Only load data if logged in
     const saved = loadState();
     if (saved) {
-      if (saved.config) setConfig(saved.config);
+      // Only overwrite if we haven't already loaded from cloud (Cloud takes precedence usually, but for simplicity we mix)
+      if (!isCloudSynced && saved.config) setConfig(saved.config);
       if (saved.trades) setTrades(saved.trades);
       if (saved.logs) setLogs(saved.logs);
       if (saved.balance) setBalance(saved.balance);
@@ -85,10 +95,23 @@ export default function App() {
     }
   }, [user]);
 
-  // --- Auto-Save Effect ---
+  // --- Auto-Save Effect (Local & Cloud) ---
   useEffect(() => {
     if (!user) return;
+    
+    // 1. Save to Local Storage (Immediate)
     saveState(config, trades, logs, balance, profit);
+
+    // 2. Save to Cloud Supabase (Debounced ideally, but here direct)
+    const syncToCloud = async () => {
+      const success = await cloudService.saveConfig(user.id, config);
+      setIsCloudSynced(success);
+    };
+    
+    // Only sync config changes to cloud to save bandwidth
+    const timeoutId = setTimeout(syncToCloud, 2000); 
+    return () => clearTimeout(timeoutId);
+
   }, [config, trades, logs, balance, profit, user]);
 
   // --- Market Data Loop ---
@@ -321,9 +344,9 @@ export default function App() {
                   <div className={`w-2 h-2 rounded-full ${botStatus === BotStatus.RUNNING ? 'bg-crypto-green animate-pulse' : 'bg-gray-500'}`}></div>
                   {botStatus === BotStatus.RUNNING ? 'System Online' : 'System Idle'}
                </div>
-               <div className="flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs text-gray-400 border border-gray-700">
-                  <IconZap className="w-3 h-3 text-crypto-accent" />
-                  Gemini 2.5 Flash
+               <div className={`flex items-center gap-2 px-3 py-1 bg-gray-800 rounded text-xs border border-gray-700 ${isCloudSynced ? 'text-blue-400' : 'text-gray-500'}`}>
+                  <IconDatabase className="w-3 h-3" />
+                  {isCloudSynced ? 'Cloud Synced' : 'Local Only'}
                </div>
              </div>
            )}

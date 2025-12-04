@@ -1,18 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Candle, MarketNews, AIAnalysisResult, BotConfig } from '../types';
 
-// Hardcoded for Vercel Static Deployment
-const API_KEY = 'AIzaSyCBcqvrdjXtr5bCL19LFNR0uhUdum8axw0';
-
 let genAI: GoogleGenAI | null = null;
 
 const getAIClient = () => {
   if (!genAI) {
-    if (!API_KEY) {
+    if (!process.env.API_KEY) {
       console.error("API Key is missing!");
       return null;
     }
-    genAI = new GoogleGenAI({ apiKey: API_KEY });
+    genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
   return genAI;
 };
