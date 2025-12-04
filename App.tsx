@@ -69,6 +69,7 @@ export default function App() {
     await authService.logout();
     setUser(null);
     setBotStatus(BotStatus.IDLE); // Stop bot on logout
+    setActiveTab('dashboard'); // Reset tab
   };
 
   // --- Data Loading Effect ---
@@ -245,22 +246,24 @@ export default function App() {
             <span className="font-medium">Dashboard</span>
           </div>
 
-          <div 
-             onClick={() => setActiveTab('deploy')}
-             className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'deploy' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-          >
-             <IconServer className="w-5 h-5" />
-             <span className="font-medium">Deploy / DB</span>
-          </div>
-
           {user.role === 'admin' && (
-            <div 
-               onClick={() => setActiveTab('admin')}
-               className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'admin' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-            >
-               <IconSettings className="w-5 h-5" />
-               <span className="font-medium">Admin Panel</span>
-            </div>
+            <>
+              <div 
+                onClick={() => setActiveTab('deploy')}
+                className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'deploy' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              >
+                <IconServer className="w-5 h-5" />
+                <span className="font-medium">Deploy / DB</span>
+              </div>
+
+              <div 
+                onClick={() => setActiveTab('admin')}
+                className={`p-3 rounded flex items-center gap-3 cursor-pointer transition-colors ${activeTab === 'admin' ? 'bg-crypto-panel text-crypto-accent border border-crypto-accent/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              >
+                <IconSettings className="w-5 h-5" />
+                <span className="font-medium">Admin Panel</span>
+              </div>
+            </>
           )}
         </nav>
 
@@ -273,7 +276,7 @@ export default function App() {
              <button onClick={handleLogout} className="text-xs text-red-400 hover:text-red-300 border border-red-900 bg-red-900/10 px-2 py-1 rounded">Logout</button>
            </div>
            
-           {activeTab !== 'admin' && (
+           {activeTab !== 'admin' && activeTab !== 'deploy' && (
              <>
                 <div className="flex justify-between items-center mb-2">
                   <div className="text-xs text-gray-500">DEMO BALANCE</div>
